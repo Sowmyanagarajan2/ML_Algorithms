@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SVM Train → Test Interactive Demo</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;font-family:Arial,sans-serif;background:#f4f7fb;color:#172033}
+.app{max-width:1250px;margin:auto;padding:22px}
+h1{margin:0 0 5px;font-size:32px}
+.sub{color:#657084;margin-bottom:18px}
+.tabs{display:flex;gap:10px;margin-bottom:18px}
+button{border:0;border-radius:10px;padding:12px 18px;font-weight:700;cursor:pointer;background:#172033;color:white}
+button.active{background:#5267ff}
+button.secondary{background:#e9edf5;color:#172033}
+.layout{display:grid;grid-template-columns:350px 1fr;gap:18px}
+.card{background:white;border-radius:18px;padding:18px;box-shadow:0 8px 25px rgba(30,45,75,.08)}
+.canvasbox{height:590px}
+canvas{width:100%;height:100%;cursor:crosshair}
+.step{background:#f7f8fc;border-radius:12px;padding:13px;margin-top:12px;line-height:1.6}
+.big{font-size:24px;font-weight:800}
+.good{background:#ecfdf3}
+.warn{background:#fff7e6}
+.info{background:#eef2ff}
+.hidden{display:none}
+.progress{height:10px;background:#e8ebf2;border-radius:10px;overflow:hidden;margin-top:10px}
+.bar{height:100%;width:0;background:#5267ff;transition:width .1s}
+.small{font-size:13px;color:#6b7485}
+.slider{width:100%}
+label{display:flex;justify-content:space-between;font-weight:700;margin:10px 0 5px}
+@media(max-width:850px){.layout{grid-template-columns:1fr}.canvasbox{height:500px}}
+</style>
+</head>
+<body>
+<div class="app">
+<h1>🎯 SVM: TRAIN → TEST</h1>
+<div class="sub">First watch SVM learn the boundary. Then click or move a new phone and see how the trained boundary classifies it.</div>
+
+<div class="tabs">
+  <button id="trainBtn" class="active">1️⃣ TRAIN SVM</button>
+  <button id="testBtn" class="secondary">2️⃣ TEST NEW PHONE</button>
+</div>
+
+<div class="layout">
+<div class="card">
+
+<div id="trainPanel">
+<h2>🧠 Training Mode</h2>
+<p>Watch the boundary move while the model learns a useful separation between Budget and Premium phones.</p>
+
+<div class="step info">
+<b>What is changing?</b><br>
+The SVM parameters <b>w₁, w₂, b</b> change during training.<br>
+Because the formula changes, the decision boundary changes too.
+</div>
+
+<div class="step" id="trainStatus">
+Click <b>TRAIN</b> to start.
+</div>
+
+<button id="startTraining">▶ TRAIN SVM</button>
+<div class="progress"><div class="bar" id="bar"></div></div>
+
+<div class="step">
+<b>Current model</b><br>
+w₁ = <span id="w1">0</span><br>
+w₂ = <span id="w2">0</span><br>
+b = <span id="bias">0</span><br>
+<br>
+<b>Boundary:</b><br>
+<span id="boundaryFormula">w₁ × RAM + w₂ × Price + b = 0</span>
+</div>
+
+<div class="step warn">
+⭐ <b>Support Vectors</b><br>
+The points closest to the final boundary are the important points that help determine the margin.
+</div>
+</div>
+
+<div id="testPanel" class="hidden">
+<h2>📱 Test a New Phone</h2>
+<p>Now the model is trained. The boundary stays fixed while the new phone moves.</p>
+
+<label>RAM <span><span id="ramValue">6</span> GB</span></label>
+<input id="ramSlider" class="slider" type="range" min="2" max="16" value="6">
+
+<label>Price <span>₹<span id="priceValue">28</span>K</span></label>
+<input id="priceSlider" class="slider" type="range" min="10" max="80" value="28">
+
+<div class="step info">
+<b>Decision Formula</b><br>
+Decision = w₁ × RAM + w₂ × Price + b
+<div class="step" id="calculation">-4 × 6 + 1 × 28 - 5 = -1</div>
+</div>
+
+<div id="predictionBox" class="step good">
+<div class="big" id="prediction">BUDGET (-1)</div>
+<span id="predictionExplain">Decision is negative.</span>
+</div>
+
+<div class="step">
+<b>Margin Formula</b><br>
+Margin = y × Decision
+<div id="marginCalculation">Using the predicted class as y: (-1) × (-1) = 1</div>
+</div>
+
+<div class="step" id="supportBox">
+⭐ <b>Support Vector check:</b> close to the boundary.
+</div>
+</div>
+
+</div>
+
+<div class="card">
+<h2 id="graphTitle">SVM is waiting to learn...</h2>
+<div class="canvasbox"><canvas id="graph" width="850" height="570"></canvas></div>
+<div class="small">
+🔵 Budget &nbsp;&nbsp; 🔴 Premium &nbsp;&nbsp; 🔷 Decision boundary &nbsp;&nbsp; ⭐ Support Vector
+</div>
+</div>
+</div>
+</div>
+
+<script>
+const canvas=document.getElementById("graph"),ctx=canvas.getContext("2d");
+
+const points=[
+{ram:2,price:12,y:-1},{ram:3,price:15,y:-1},{ram:4,price:18,y:-1},
+{ram:4,price:20,y:-1},{ram:5,price:24,y:-1},{ram:6,price:25,y:-1},
+{ram:6,price:28,y:-1},{ram:7,price:34,y:1},{ram:8,price:45,y:1},
+{ram:8,price:50,y:1},{ram:10,price:55,y:1},{ram:12,price:60,y:1},
+{ram:12,price:65,y:1},{ram:16,price:75,y:1}
+];
+
+// Final teaching model.
+// Boundary: -4*RAM + 1*Price - 5 = 0
+// Therefore: Price = 4*RAM + 5
+const finalModel={w1:-4,w2:1,b:-5};
+let model={w1:0.3,w2:-0.1,b:8};
+let trained=false;
+let selected={ram:6,price:28};
+
+const sx=x=>70+(x-1)/(17-1)*(canvas.width-100);
+const sy=y=>canvas.height-55-(y-5)/(82-5)*(canvas.height-90);
+
+function decision(r,p){return model.w1*r+model.w2*p+model.b}
+
+function draw(){
+ctx.clearRect(0,0,canvas.width,canvas.height);
+const W=canvas.width,H=canvas.height;
+
+ctx.fillStyle="#fff";ctx.fillRect(0,0,W,H);
+
+// grid
+ctx.strokeStyle="#e8ebf2";ctx.lineWidth=1;
+for(let x=2;x<=16;x+=2){ctx.beginPath();ctx.moveTo(sx(x),25);ctx.lineTo(sx(x),H-55);ctx.stroke()}
+for(let y=10;y<=80;y+=10){ctx.beginPath();ctx.moveTo(70,sy(y));ctx.lineTo(W-30,sy(y));ctx.stroke()}
+
+// axes
+ctx.strokeStyle="#7c879c";ctx.lineWidth=2;
+ctx.beginPath();ctx.moveTo(70,25);ctx.lineTo(70,H-55);ctx.lineTo(W-30,H-55);ctx.stroke();
+
+ctx.fillStyle="#687386";ctx.font="13px Arial";ctx.textAlign="center";
+for(let x=2;x<=16;x+=2)ctx.fillText(x,sx(x),H-30);
+ctx.textAlign="right";
+for(let y=10;y<=80;y+=10)ctx.fillText(y,60,sy(y)+5);
+ctx.textAlign="center";ctx.font="bold 14px Arial";
+ctx.fillText("RAM (GB)",(70+W-30)/2,H-8);
+
+ctx.save();ctx.translate(18,(25+H-55)/2);ctx.rotate(-Math.PI/2);
+ctx.fillText("Price (₹K)",0,0);ctx.restore();
+
+// Draw model boundary only after training begins
+if(model.w2!==0){
+function lineY(x,offset){
+return (offset-model.w1*x-model.b)/model.w2;
+}
+[
+{off:-1,color:"#aeb5c4",dash:[6,6]},
+{off:0,color:"#5267ff",dash:[10,6]},
+{off:1,color:"#aeb5c4",dash:[6,6]}
+].forEach((ln,i)=>{
+ctx.save();ctx.strokeStyle=ln.color;ctx.lineWidth=i===1?3:1.6;ctx.setLineDash(ln.dash);
+ctx.beginPath();let started=false;
+for(let x=1;x<=17;x+=.08){
+let y=lineY(x,ln.off);
+if(y>=5&&y<=82){
+if(!started){ctx.moveTo(sx(x),sy(y));started=true}
+else ctx.lineTo(sx(x),sy(y))
+}}
+ctx.stroke();ctx.restore();
+});
+}
+
+// points
+points.forEach(pt=>{
+let d=finalModel.w1*pt.ram+finalModel.w2*pt.price+finalModel.b;
+let support=Math.abs(Math.abs(d)-1)<.001;
+
+ctx.beginPath();ctx.arc(sx(pt.ram),sy(pt.price),support?9:7,0,Math.PI*2);
+ctx.fillStyle=pt.y===1?"#e85d75":"#4d78d8";ctx.fill();
+ctx.strokeStyle=support?"#f59e0b":"#26324a";ctx.lineWidth=support?3:1.4;ctx.stroke();
+if(support){
+ctx.fillStyle="#f59e0b";ctx.font="bold 15px Arial";ctx.fillText("★",sx(pt.ram)+10,sy(pt.price)-8);
+}
+});
+
+// selected new point
+if(trained){
+ctx.beginPath();ctx.arc(sx(selected.ram),sy(selected.price),14,0,Math.PI*2);
+ctx.strokeStyle="#111827";ctx.lineWidth=3;ctx.stroke();
+ctx.fillStyle="#111827";ctx.font="bold 13px Arial";
+ctx.fillText("NEW",sx(selected.ram)+12,sy(selected.price)-12);
+}
+}
+
+function updateModelDisplay(){
+document.getElementById("w1").textContent=model.w1.toFixed(2);
+document.getElementById("w2").textContent=model.w2.toFixed(2);
+document.getElementById("bias").textContent=model.b.toFixed(2);
+document.getElementById("boundaryFormula").textContent=
+`${model.w1.toFixed(2)} × RAM + ${model.w2.toFixed(2)} × Price + (${model.b.toFixed(2)}) = 0`;
+draw();
+}
+
+async function train(){
+document.getElementById("startTraining").disabled=true;
+document.getElementById("trainStatus").innerHTML="<b>Training...</b> SVM is moving the boundary toward a useful separation.";
+const start={w1:.3,w2:-.1,b:8};
+const end=finalModel;
+const frames=90;
+
+for(let i=0;i<=frames;i++){
+let t=i/frames;
+t=t*t*(3-2*t);
+model.w1=start.w1+(end.w1-start.w1)*t;
+model.w2=start.w2+(end.w2-start.w2)*t;
+model.b=start.b+(end.b-start.b)*t;
+document.getElementById("bar").style.width=(t*100)+"%";
+updateModelDisplay();
+await new Promise(r=>setTimeout(r,35));
+}
+
+trained=true;
+model={...finalModel};
+updateModelDisplay();
+
+document.getElementById("trainStatus").innerHTML=
+"<b>✅ Training complete!</b><br>The model has learned the boundary. Now switch to <b>TEST NEW PHONE</b>.";
+document.getElementById("graphTitle").textContent="✅ Trained SVM Boundary";
+document.getElementById("startTraining").textContent="✓ TRAINED";
+}
+
+function updateTest(){
+if(!trained)return;
+selected.ram=+document.getElementById("ramSlider").value;
+selected.price=+document.getElementById("priceSlider").value;
+document.getElementById("ramValue").textContent=selected.ram;
+document.getElementById("priceValue").textContent=selected.price;
+
+let d=decision(selected.ram,selected.price);
+let pred=d>=0?1:-1;
+let margin=pred*d;
+
+document.getElementById("calculation").textContent=
+`${model.w1} × ${selected.ram} + ${model.w2} × ${selected.price} + (${model.b}) = ${d.toFixed(2)}`;
+
+let box=document.getElementById("predictionBox");
+box.className="step "+(pred===1?"good":"warn");
+document.getElementById("prediction").textContent=pred===1?"PREMIUM (+1)":"BUDGET (-1)";
+document.getElementById("predictionExplain").textContent=
+d>0?`${d.toFixed(2)} > 0 → Premium side of the boundary.`
+:`${d.toFixed(2)} < 0 → Budget side of the boundary.`;
+
+document.getElementById("marginCalculation").textContent=
+`(${pred===1?"+1":"-1"}) × (${d.toFixed(2)}) = ${margin.toFixed(2)}`;
+
+document.getElementById("supportBox").innerHTML=
+Math.abs(d)<=2
+? "⭐ <b>Very close to the boundary!</b> This point is behaving like a Support Vector."
+: "📍 This point is farther from the boundary, so it has less influence.";
+
+draw();
+}
+
+document.getElementById("startTraining").onclick=train;
+document.getElementById("ramSlider").oninput=updateTest;
+document.getElementById("priceSlider").oninput=updateTest;
+
+document.getElementById("trainBtn").onclick=()=>{
+document.getElementById("trainPanel").classList.remove("hidden");
+document.getElementById("testPanel").classList.add("hidden");
+document.getElementById("trainBtn").className="";
+document.getElementById("testBtn").className="secondary";
+};
+document.getElementById("testBtn").onclick=()=>{
+if(!trained){alert("Train the SVM first!");return}
+document.getElementById("trainPanel").classList.add("hidden");
+document.getElementById("testPanel").classList.remove("hidden");
+document.getElementById("trainBtn").className="secondary";
+document.getElementById("testBtn").className="";
+updateTest();
+};
+
+canvas.addEventListener("click",e=>{
+if(!trained)return;
+const rect=canvas.getBoundingClientRect();
+const mx=(e.clientX-rect.left)*canvas.width/rect.width;
+const my=(e.clientY-rect.top)*canvas.height/rect.height;
+let best=null,dist=Infinity;
+points.forEach(pt=>{
+let d=Math.hypot(mx-sx(pt.ram),my-sy(pt.price));
+if(d<dist){dist=d;best=pt}
+});
+if(best&&dist<24){
+document.getElementById("ramSlider").value=best.ram;
+document.getElementById("priceSlider").value=best.price;
+updateTest();
+}
+});
+
+updateModelDisplay();
+</script>
+</body>
+</html>
