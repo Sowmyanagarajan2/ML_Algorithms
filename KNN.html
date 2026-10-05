@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>KNN Visual Simulator</title>
+  <style>
+    body { font-family: Arial, sans-serif; max-width: 920px; margin: 25px auto; padding: 0 16px; }
+    canvas { border: 1px solid #333; cursor: crosshair; max-width: 100%; }
+    button, select { padding: 8px 12px; margin: 8px 4px 8px 0; }
+    .red { color: #d62828; } .blue { color: #1666c5; }
+    code { background: #f1f1f1; padding: 2px 5px; }
+  </style>
+</head>
+<body>
+  <h2>K-Nearest Neighbors Simulator</h2>
+  <p>
+    Select a class, click to add training points, then click
+    <b>Classify Query Point</b> and click once on the canvas.
+  </p>
+
+  <label>Class for new training point:</label>
+  <select id="classSelect">
+    <option value="Red">Red</option>
+    <option value="Blue">Blue</option>
+  </select>
+
+  <label>Choose K:</label>
+  <select id="kSelect">
+    <option value="1">1</option>
+    <option value="3" selected>3</option>
+    <option value="5">5</option>
+  </select>
+
+  <br>
+  <button id="classifyBtn">Classify Query Point</button>
+  <button id="clearBtn">Clear All</button>
+
+  <p>
+    <span class="red">Red points</span> and
+    <span class="blue">Blue points</span> are training data.
+    The black cross is the new query point.
+  </p>
+
+  <canvas id="canvas" width="700" height="430"></canvas>
+
+  <h3>Formula used</h3>
+  <p>Euclidean distance between query point \(Q(x_q,y_q)\) and point \(P(x_p,y_p)\):</p>
+  <p><code>d(Q,P) = √[(xq − xp)² + (yq − yp)²]</code></p>
+
+  <h3>Calculation</h3>
+  <div id="output">Add some red and blue points to begin.</div>
+
+  <script>
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+    const output = document.getElementById("output");
+    const classSelect = document.getElementById("classSelect");
+    const kSelect = document.getElementById("kSelect");
+    const classifyBtn = document.getElementById("classifyBtn");
+    const clearBtn = document.getElementById("clearBtn");
+
+    let points = [];
+    let queryPoint = null;
+    let classifyMode = false;
+    let neighbors = [];
+
+    function distance(a, b) {
+      return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
+    }
+
+    function drawPoint(point, radius = 7) {
+      ctx.beginPath();
+      ctx.arc(point.x, point.y, radius, 0, Math.PI * 2);
+      ctx.fillStyle = point.label === "Red" ? "#d62828" : "#1666c5";
+      ctx.fill();
+      ctx.strokeStyle = "#111";
+      ctx.stroke();
+    }
+
+    function redraw() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      points.forEach(p => drawPoint(p));
+
+      if (queryPoint) {
+        neighbors.forEach(n => {
+          ctx.beginPath();
+          ctx.moveTo(queryPoint.x, queryPoint.y);
+          ctx.lineTo(n.x, n.y);
+          ctx.strokeStyle = "#555";
+          ctx.setLineDash([5, 5]);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        });
+
+        ctx.beginPath();
+        ctx.moveTo(queryPoint.x - 9, queryPoint.y - 9);
+        ctx.lineTo(queryPoint.x + 9, queryPoint.y + 9);
+        ctx.moveTo(queryPoint.x + 9, queryPoint.y - 9);
+        ctx.lineTo(queryPoint.x - 9, queryPoint.y + 9);
+        ctx.strokeStyle = "#000";
+        ctx.lineWidth = 3;
+        ctx.stroke();
+        ctx.lineWidth = 1;
+      }
+    }
+
+    canvas.addEventListener("click", event => {
+      const rect = canvas.getBoundingClientRect();
+      const x = (event.clientX - rect.left) * (canvas.width / rect.width);
+      const y = (event.clientY - rect.top) * (canvas.height / rect.height);
+
+      if (classifyMode) {
+        if (points.length < Number(kSelect.value)) {
+          output.innerHTML = "Add at least K training points before classifying.";
+          return;
+        }
+        queryPoint = { x, y };
+        classify();
+        classifyMode = false;
+        classifyBtn.textContent = "Classify Query Point";
+      } else {
+        points.push({ x, y, label: classSelect.value });
+        queryPoint = null;
+        neighbors = [];
+        output.innerHTML = "Training point added. Add more points or classify a new point.";
+      }
+      redraw();
+    });
+
+    classifyBtn.addEventListener("click", () => {
+      classifyMode = !classifyMode;
+      classifyBtn.textContent = classifyMode
+        ? "Now Click a Query Location"
+        : "Classify Query Point";
+    });
+
+    clearBtn.addEventListener("click", () => {
+      points = [];
+      queryPoint = null;
+      neighbors = [];
+      classifyMode = false;
+      classifyBtn.textContent = "Classify Query Point";
+      output.innerHTML = "Canvas cleared. Add training points.";
+      redraw();
+    });
+
+    function classify() {
+      const k = Number(kSelect.value);
+
+      const sorted = points
+        .map(p => ({ ...p, distance: distance(queryPoint, p) }))
+        .sort((a, b) => a.distance - b.distance);
+
+      neighbors = sorted.slice(0, k);
+
+      const redVotes = neighbors.filter(n => n.label === "Red").length;
+      const blueVotes = neighbors.filter(n => n.label === "Blue").length;
+
+      let prediction;
+      if (redVotes > blueVotes) prediction = "Red";
+      else if (blueVotes > redVotes) prediction = "Blue";
+      else prediction = "Tie — choose an odd K, such as 3 or 5.";
+
+      const rows = neighbors.map((n, i) =>
+        `<tr>
+          <td>${i + 1}</td>
+          <td>${n.label}</td>
+          <td>√[(${queryPoint.x.toFixed(0)} − ${n.x.toFixed(0)})² + (${queryPoint.y.toFixed(0)} − ${n.y.toFixed(0)})²]</td>
+          <td>${n.distance.toFixed(2)}</td>
+        </tr>`
+      ).join("");
+
+      output.innerHTML = `
+        <p><b>K = ${k}</b></p>
+        <table border="1" cellpadding="7" style="border-collapse:collapse">
+          <tr><th>Rank</th><th>Class</th><th>Distance calculation</th><th>Distance</th></tr>
+          ${rows}
+        </table>
+        <p>Red votes: <b>${redVotes}</b> | Blue votes: <b>${blueVotes}</b></p>
+        <p><b>Prediction: ${prediction}</b></p>
+      `;
+    }
+
+    redraw();
+  </script>
+</body>
+</html>
